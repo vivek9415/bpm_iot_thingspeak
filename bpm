@@ -1,0 +1,118 @@
+#include <ESP8266WiFi.h>
+#include<Wire.h>
+#include <WiFiClient.h>
+#define ON_Board_LED D4  //--> Defining an On Board LED (GPIO2 = D4), used for indicators when the process of connecting to a wifi router and when there is a client request.
+#define BLYNK_PRINT Serial
+#include <Blynk.h>
+#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp8266.h>
+#include<math.h>
+
+const char* server = "api.thingspeak.com";
+char auth[] = "iHvlHly14ft2veZC688IUyQPxmQCs7VQ";       // You should get Auth Token in the Blynk App.
+char ssid[] = "new";                       // Your WiFi credentials.
+char pass[] = "gu243243";
+int count=0;
+String apiKey = "5GY0AOQKWP51S4F9";     //  Enter your Write API key from ThingSpeak
+WiFiClient client;
+
+unsigned long previousMillisGetHR = 0; //--> will store the last time Millis (to get Heartbeat) was updated.
+unsigned long previousMillisHR = 0; //--> will store the last time Millis (to get BPM) was updated.
+const long intervalGetHR = 10; //--> Interval for reading heart rate (Heartbeat) = 10ms.
+const long intervalHR = 10000; //--> Interval for obtaining the BPM value based on the sample is 10 seconds.
+const int PulseSensorHRWire = A0; //--> PulseSensor connected to ANALOG PIN 0 (A0 / ADC 0).
+const int LED_2 = 2; //--> LED to detect when the heart is beating. The LED is connected to PIN 2 (GPIO5) on the NodeMCU ESP12E.
+int Threshold = 600; //--> Determine which Signal to "count as a beat" and which to ignore.
+int cntHB = 0; //--> Variable for counting the number of heartbeats.
+boolean ThresholdStat = true; //--> Variable for triggers in calculating heartbeats.
+int BPMval = 0; //--> Variable to hold the result of heartbeats calculation.
+
+void handleHeartRate() 
+{
+  digitalWrite(ON_Board_LED, LOW); //--> "ON_Board_LED" will be turned on when the request from the browser / client starts.
+  String BPMvalSend = String(BPMval); 
+  digitalWrite(ON_Board_LED, HIGH); //--> Turn off the LED because the client request / browser has been processed.
+}
+
+void GetHeartRate() 
+{
+unsigned long currentMillisGetHR = millis();
+  if (currentMillisGetHR - previousMillisGetHR >= intervalGetHR) 
+  {
+    previousMillisGetHR = currentMillisGetHR;
+    int PulseSensorHRVal = analogRead(PulseSensorHRWire);
+    if (PulseSensorHRVal > Threshold && ThresholdStat == true) 
+    {
+      cntHB++;
+      ThresholdStat = false;
+      digitalWrite(LED_2,HIGH);
+    }
+
+    if (PulseSensorHRVal < Threshold) 
+    {
+      ThresholdStat = true;
+      digitalWrite(LED_2,LOW);
+    }
+  }
+  unsigned long currentMillisHR = millis();
+if (currentMillisHR - previousMillisHR >= intervalHR) 
+{
+    previousMillisHR = currentMillisHR;
+    BPMval = cntHB * 6; //--> The taken heart rate is for 10 seconds. So to get the BPM value, the total heart rate in 10 seconds x 6.
+    Serial.print("BPM : ");
+    Serial.println(BPMval);
+      cntHB = 0; 
+      
+if (client.connect(server,80))   //   "184.106.153.149" or api.thingspeak.com
+                      {  
+                            
+                             String postStr = apiKey;                       
+                             postStr +="&field3=";
+                             postStr += String(BPMval);
+                             postStr += "\r\n\r\n"; 
+                             client.print("POST /update HTTP/1.1\n");
+                             client.print("Host: api.thingspeak.com\n");
+                             client.print("Connection: close\n");
+                             client.print("X-THINGSPEAKAPIKEY: "+apiKey+"\n");
+                             client.print("Content-Type: application/x-www-form-urlencoded\n");
+                             client.print("Content-Length: ");
+                             client.print(postStr.length());
+                             client.print("\n\n");
+                             client.print(postStr);
+                         }
+}
+}
+void setup() 
+{
+  Serial.begin(115200);
+  delay(500);
+  pinMode(ON_Board_LED,OUTPUT); //--> On Board LED port Direction output
+  digitalWrite(ON_Board_LED, HIGH); //--> Turn off Led On Board
+  pinMode(LED_2,OUTPUT); //--> Set LED_3 PIN as Output.
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, pass); //--> Connect to your WiFi router
+  Serial.println("");
+  Serial.print("Connecting");
+  while (WiFi.status() != WL_CONNECTED) 
+  {
+    Serial.print(".");
+    digitalWrite(ON_Board_LED, LOW);
+    delay(250);
+    digitalWrite(ON_Board_LED, HIGH);
+    delay(250);
+  }
+  digitalWrite(ON_Board_LED, HIGH); //--> Turn off the On Board LED when it is connected to the wifi router.
+  Serial.println("");
+  Serial.print("Successfully connected to : ");
+  Serial.println(ssid);
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+  Serial.println();
+  Serial.println("HTTP server started");
+ Serial.println();
+  Serial.println("Please wait 10 seconds to get the BPM Value");
+}
+void loop() 
+{
+    GetHeartRate(); //--> Calling the GetHeartRate() subroutine
+}
